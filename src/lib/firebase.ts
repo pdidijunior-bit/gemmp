@@ -18,7 +18,6 @@ import {
 } from 'firebase/auth';
 import type { PropertyItem, ChatMessage, Conversation, PublicityCard } from '../types';
 import { DEFAULT_PUBLICITY_CARDS } from './constants';
-import { SAMPLE_ANGOLA_PROPERTIES } from './sampleData';
 
 // Official Firebase configuration for Gemmp Construção Civil & Imobiliária
 // Supports optional VITE_* environment variables with reliable defaults for zero-friction GitHub deployment
@@ -41,11 +40,34 @@ if (typeof window !== 'undefined') {
   signInAnonymously(auth).catch(() => {});
 }
 
-const STORAGE_KEY_PROPERTIES = 'gemmp_properties_cache_v1';
+// Master Storage Keys (Permanent Persistence - Never auto-delete)
+const STORAGE_KEY_PROPERTIES = 'gemmp_properties_catalog_master_v2';
+const STORAGE_KEY_DELETED_PROPERTIES = 'gemmp_deleted_property_ids_v2';
 const STORAGE_KEY_CONVERSATIONS = 'gemmp_conversations_cache_v1';
 const STORAGE_KEY_MESSAGES = 'gemmp_messages_cache_v1';
 const STORAGE_KEY_ULTRABOOST = 'gemmp_ultraboost_enabled';
 const STORAGE_KEY_PUBLICITY = 'gemmp_publicity_cards_v1';
+
+// One-time cleanup of obsolete caches and demo entries from previous sessions
+if (typeof window !== 'undefined') {
+  try {
+    localStorage.removeItem('gemmp_firestore_seeded_v1');
+    const legacyRaw = localStorage.getItem('gemmp_properties_cache_v1');
+    if (legacyRaw) {
+      try {
+        const parsed = JSON.parse(legacyRaw);
+        if (Array.isArray(parsed)) {
+          // Keep only user-published real properties, discarding any demo items
+          const realOnly = parsed.filter((item: any) => item && item.id && !item.id.startsWith('prop_demo_'));
+          if (realOnly.length > 0) {
+            localStorage.setItem(STORAGE_KEY_PROPERTIES, JSON.stringify(realOnly));
+          }
+        }
+      } catch {}
+      localStorage.removeItem('gemmp_properties_cache_v1');
+    }
+  } catch {}
+}
 
 /**
  * Remove undefined values recursively to avoid Firestore serialization errors
@@ -88,92 +110,171 @@ export function setUltraBoostStatus(enabled: boolean = true): void {
   }
 }
 
+// Helper for managing explicitly deleted property IDs to prevent ghost restoration
+export function getDeletedPropertyIds(): Set<string> {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY_DELETED_PROPERTIES);
+    if (raw) {
+      const arr = JSON.parse(raw);
+      if (Array.isArray(arr)) return new Set(arr);
+    }
+  } catch {}
+  return new Set();
+}
+
+export function addDeletedPropertyId(id: string): void {
+  try {
+    const current = getDeletedPropertyIds();
+    current.add(id);
+    localStorage.setItem(STORAGE_KEY_DELETED_PROPERTIES, JSON.stringify(Array.from(current)));
+  } catch {}
+}
+
+export function removeDeletedPropertyId(id: string): void {
+  try {
+    const current = getDeletedPropertyIds();
+    if (current.has(id)) {
+      current.delete(id);
+      localStorage.setItem(STORAGE_KEY_DELETED_PROPERTIES, JSON.stringify(Array.from(current)));
+    }
+  } catch {}
+}
+
 export function getCachedProperties(): PropertyItem[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEY_PROPERTIES);
     if (raw) {
       const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      if (Array.isArray(parsed)) {
+        const deleted = getDeletedPropertyIds();
+        // Return only legitimate real properties (no demo items, no deleted items)
+        return parsed.filter(item => 
+          item && 
+          item.id && 
+          !deleted.has(item.id) && 
+          !item.id.startsWith('prop_demo_')
+        );
+      }
     }
   } catch (e) {
-    console.warn('Failed reading properties cache', e);
+    console.warn('Failed reading properties master storage', e);
   }
-  return SAMPLE_ANGOLA_PROPERTIES;
+  return [];
 }
 
 export function setCachedProperties(items: PropertyItem[]): void {
   try {
-    localStorage.setItem(STORAGE_KEY_PROPERTIES, JSON.stringify(items));
+    const deleted = getDeletedPropertyIds();
+    const clean = items.filter(item => 
+      item && 
+      item.id && 
+      !deleted.has(item.id) && 
+      !item.id.startsWith('prop_demo_')
+    );
+    localStorage.setItem(STORAGE_KEY_PROPERTIES, JSON.stringify(clean));
   } catch (e) {
-    console.warn('Failed saving properties cache', e);
+    console.warn('Failed saving properties master storage', e);
   }
 }
 
 /**
- * Realtime subscription to Properties with fallback to UltraBoost Cache
+ * Realtime subscription to Properties with permanent master persistence
+ * Guarantees that admin-published items NEVER disappear after 2 minutes or upon empty Firestore snapshots
  */
 export function subscribeToProperties(
   callback: (properties: PropertyItem[], isFromCache: boolean) => void,
   onError?: (err: Error) => void
 ): () => void {
-  // First, emit cached data immediately for instant zero-latency UI display
-  const cached = getCachedProperties();
-  if (cached.length > 0) {
-    callback(cached, true);
+  // 1. Instantly return local real properties
+  const initialLocal = getCachedProperties();
+  callback(initialLocal, true);
+
+  // 2. Listen to local updates across tabs, panels and windows
+  const handleLocalEvent = (e: any) => {
+    const updated = e?.detail?.properties || getCachedProperties();
+    callback(updated, true);
+  };
+
+  if (typeof window !== 'undefined') {
+    window.addEventListener('gemmp_properties_updated', handleLocalEvent);
+    window.addEventListener('storage', handleLocalEvent);
   }
 
+  // 3. Connect to Firestore
   try {
     const propsCol = collection(db, 'properties');
 
     const unsubscribe = onSnapshot(
       propsCol,
       (snapshot) => {
-        const items: PropertyItem[] = [];
+        const firestoreItems: PropertyItem[] = [];
         snapshot.forEach((docSnap) => {
           const data = docSnap.data() as PropertyItem;
-          items.push({
-            ...data,
-            id: docSnap.id,
-          });
-        });
-
-        // Client-side sort by createdAt descending (no composite index required)
-        items.sort((a, b) => (Number(b.createdAt) || 0) - (Number(a.createdAt) || 0));
-
-        if (items.length === 0) {
-          // If Firestore collection is empty on first boot, auto-populate with initial listings
-          const seeded = localStorage.getItem('gemmp_firestore_seeded_v1');
-          if (!seeded) {
-            localStorage.setItem('gemmp_firestore_seeded_v1', 'true');
-            SAMPLE_ANGOLA_PROPERTIES.forEach((prop) => {
-              savePropertyToFirestore(prop).catch(() => {});
+          if (data && docSnap.id && !docSnap.id.startsWith('prop_demo_')) {
+            firestoreItems.push({
+              ...data,
+              id: docSnap.id,
             });
           }
-          callback(SAMPLE_ANGOLA_PROPERTIES, false);
-        } else {
-          // Update local cache with live Firestore items
-          setCachedProperties(items);
-          callback(items, false);
+        });
+
+        const currentLocal = getCachedProperties();
+        const deleted = getDeletedPropertyIds();
+
+        // Robust Merge: Any real property created by the admin is permanently preserved
+        // Even if Firestore takes 2 minutes to timeout or returns empty, local items NEVER get erased!
+        const map = new Map<string, PropertyItem>();
+
+        // Load current local master items first
+        for (const item of currentLocal) {
+          if (!deleted.has(item.id) && !item.id.startsWith('prop_demo_')) {
+            map.set(item.id, item);
+          }
         }
+
+        // Merge Firestore items
+        for (const item of firestoreItems) {
+          if (!deleted.has(item.id) && !item.id.startsWith('prop_demo_')) {
+            map.set(item.id, item);
+          }
+        }
+
+        const merged = Array.from(map.values());
+        // Sort by createdAt descending (newest first)
+        merged.sort((a, b) => (Number(b.createdAt) || 0) - (Number(a.createdAt) || 0));
+
+        // Persist merged list so it is available permanently
+        setCachedProperties(merged);
+        callback(merged, false);
       },
       (error) => {
-        console.warn('Firestore subscription notice (using local cache mode):', error.message);
-        // Fallback to cache
+        console.warn('Firestore subscription notice (running in permanent local master mode):', error.message);
         callback(getCachedProperties(), true);
         if (onError) onError(error);
       }
     );
 
-    return unsubscribe;
+    return () => {
+      unsubscribe();
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('gemmp_properties_updated', handleLocalEvent);
+        window.removeEventListener('storage', handleLocalEvent);
+      }
+    };
   } catch (err) {
     console.warn('Firestore initialization fallback:', err);
-    callback(getCachedProperties(), true);
-    return () => {};
+    return () => {
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('gemmp_properties_updated', handleLocalEvent);
+        window.removeEventListener('storage', handleLocalEvent);
+      }
+    };
   }
 }
 
 /**
- * Save or update property in Firestore + local cache
+ * Save or update property in Firestore + permanent local master storage
+ * The property is guaranteed to remain permanently in the application
  */
 export async function savePropertyToFirestore(property: PropertyItem): Promise<string> {
   const id = property.id || `prop_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
@@ -183,7 +284,10 @@ export async function savePropertyToFirestore(property: PropertyItem): Promise<s
     createdAt: property.createdAt || Date.now(),
   };
 
-  // 1. Instantly update local cache
+  // 1. Remove from deleted IDs set if it was previously deleted
+  removeDeletedPropertyId(id);
+
+  // 2. Instantly and permanently persist to master local storage
   const existing = getCachedProperties();
   const index = existing.findIndex((p) => p.id === id);
   let updatedList: PropertyItem[];
@@ -195,12 +299,12 @@ export async function savePropertyToFirestore(property: PropertyItem): Promise<s
   }
   setCachedProperties(updatedList);
 
-  // Notify listeners immediately
+  // 3. Notify all application components and tabs immediately
   if (typeof window !== 'undefined') {
     window.dispatchEvent(new CustomEvent('gemmp_properties_updated', { detail: { properties: updatedList } }));
   }
 
-  // 2. Persist to Firestore with sanitization (removes unsupported undefined values)
+  // 4. Persist to Firestore with sanitization (removes unsupported undefined values)
   try {
     const docRef = doc(db, 'properties', id);
     const sanitized = sanitizeFirestoreData(itemToSave);
@@ -208,16 +312,21 @@ export async function savePropertyToFirestore(property: PropertyItem): Promise<s
     console.log('✅ SUCESSO: Imóvel sincronizado no Firestore em tempo real:', id);
     return id;
   } catch (err: any) {
-    console.error('❌ ERRO NO FIRESTORE (Verifique as Regras no Console do Firebase):', err?.message);
+    console.warn('⚠️ Salvo permanentemente no dispositivo. Aviso Firestore:', err?.message);
+    // Return id so the item remains permanently published, but rethrow so AdminPanel displays connection notice
     throw new Error(err?.message || 'Erro ao sincronizar com Firestore');
   }
 }
 
 /**
- * Delete property
+ * Delete property explicitly
+ * Removes permanently from both master local storage and Firestore
  */
 export async function deletePropertyFromFirestore(id: string): Promise<void> {
-  // 1. Update cache
+  // 1. Mark in deleted IDs set so snapshot sync never restores it
+  addDeletedPropertyId(id);
+
+  // 2. Remove permanently from local master storage
   const existing = getCachedProperties().filter((p) => p.id !== id);
   setCachedProperties(existing);
 
@@ -225,12 +334,13 @@ export async function deletePropertyFromFirestore(id: string): Promise<void> {
     window.dispatchEvent(new CustomEvent('gemmp_properties_updated', { detail: { properties: existing } }));
   }
 
-  // 2. Delete from Firestore
+  // 3. Delete from Firestore cloud
   try {
     const docRef = doc(db, 'properties', id);
     await deleteDoc(docRef);
+    console.log('✅ Imóvel excluído do Firestore com sucesso:', id);
   } catch (err) {
-    console.warn('Deleted locally, Firestore pending sync:', err);
+    console.warn('Excluído localmente, Firestore pendente de sincronização:', err);
   }
 }
 

@@ -54,7 +54,6 @@ import {
 import { signInWithEmailAndPassword, signOut } from 'firebase/auth';
 import { compressImageFile } from '../lib/imageCompressor';
 import { CATEGORIES, TRANSACTION_TYPES, ANGOLA_LOCATIONS, formatPriceAOA } from '../lib/constants';
-import { SAMPLE_ANGOLA_PROPERTIES } from '../lib/sampleData';
 
 interface AdminPanelProps {
   isOpen: boolean;
@@ -79,7 +78,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [authLoading, setAuthLoading] = useState(false);
 
   // Admin Navigation Tabs
-  const [activeTab, setActiveTab] = useState<'publicar' | 'imoveis' | 'publicidade' | 'conversas' | 'backup' | 'apresentacao' | 'firebase'>('publicar');
+  const [activeTab, setActiveTab] = useState<'publicar' | 'imoveis' | 'publicidade' | 'conversas' | 'backup' | 'firebase'>('publicar');
 
   // Firestore Real-Time Connectivity Status
   const [connectivityStatus, setConnectivityStatus] = useState<'checking' | 'connected' | 'error'>('checking');
@@ -525,26 +524,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     });
   };
 
-  // Load sample data
-  const handleSeedDemoData = async () => {
-    for (const p of SAMPLE_ANGOLA_PROPERTIES) {
-      await savePropertyToFirestore(p);
-    }
-    onPropertiesUpdated();
-    alert('3 Imóveis de demonstração carregados com sucesso no Kilamba, Futungo e Talatona!');
-  };
-
-  // Clear all data
-  const handleClearAllData = async () => {
-    if (confirm('Atenção: deseja realmente limpar todos os imóveis e deixar o catálogo 100% vago para apresentar à imobiliária?')) {
-      for (const p of properties) {
-        await deletePropertyFromFirestore(p.id);
-      }
-      onPropertiesUpdated();
-      alert('Catálogo limpo com sucesso!');
-    }
-  };
-
   // Generate Encrypted Backup
   const handleGenerateBackup = () => {
     const enc = exportEncryptedBackup(backupKey);
@@ -731,16 +710,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               >
                 <ShieldCheck className="w-3.5 h-3.5 mr-1.5" />
                 Backup Criptografado
-              </button>
-
-              <button
-                onClick={() => setActiveTab('apresentacao')}
-                className={`px-3.5 py-2 rounded-xl text-xs font-extrabold flex items-center transition-all ${
-                  activeTab === 'apresentacao' ? 'bg-amber-500 text-slate-950 shadow' : 'text-slate-700 hover:bg-slate-200'
-                }`}
-              >
-                <Sparkles className="w-3.5 h-3.5 mr-1.5" />
-                Demonstração & Limpeza
               </button>
 
               <button
@@ -1359,7 +1328,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
                   {properties.length === 0 ? (
                     <div className="text-center py-12 text-slate-500 text-xs bg-slate-50 rounded-2xl border border-dashed border-slate-300">
-                      Nenhum imóvel cadastrado no portal. Use a aba "Publicar Novo Imóvel" ou carregue a demonstração.
+                      Nenhum imóvel cadastrado no portal. Use a aba "Publicar Novo Imóvel" para cadastrar os seus anúncios.
                     </div>
                   ) : (
                     <div className="divide-y divide-slate-200 border border-slate-200 rounded-2xl overflow-hidden bg-white">
@@ -1792,38 +1761,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                       <Check className="w-4 h-4 mr-2" />
                       {isSavingPublicity ? 'A Guardar no Site...' : 'Publicar Alterações das Caixas'}
                     </button>
-                  </div>
-                </div>
-              )}
-
-              {/* TAB: Apresentação & Demonstração */}
-              {activeTab === 'apresentacao' && (
-                <div className="max-w-2xl mx-auto space-y-6">
-                  <div className="p-5 bg-white border border-slate-200 rounded-2xl space-y-4">
-                    <h4 className="text-xs font-black text-slate-900 uppercase tracking-wider">
-                      Gestão de Demonstração & Catálogo
-                    </h4>
-                    <p className="text-xs text-slate-600">
-                      Você pode carregar imóveis modelo para apresentar à imobiliária ou deixar o portal vago para iniciar a inserção dos seus primeiros contratos:
-                    </p>
-
-                    <div className="flex flex-wrap gap-3 pt-2">
-                      <button
-                        onClick={handleSeedDemoData}
-                        className="px-4 py-2.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs rounded-xl shadow flex items-center cursor-pointer"
-                      >
-                        <Sparkles className="w-4 h-4 mr-1.5" />
-                        Carregar 3 Imóveis Modelo (Kilamba/Futungo)
-                      </button>
-
-                      <button
-                        onClick={handleClearAllData}
-                        className="px-4 py-2.5 bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs rounded-xl shadow flex items-center cursor-pointer"
-                      >
-                        <Trash2 className="w-4 h-4 mr-1.5" />
-                        Limpar Tudo e Deixar Vago
-                      </button>
-                    </div>
                   </div>
                 </div>
               )}

@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { 
   Building2, 
-  Sparkles, 
   Filter, 
   ArrowUpDown, 
   PlusCircle, 
@@ -15,14 +14,14 @@ interface PropertyListProps {
   properties: PropertyItem[];
   filters: FilterState;
   onOpenDetails: (property: PropertyItem) => void;
-  onLoadSampleData?: () => void;
+  onOpenAdmin?: () => void;
 }
 
 export const PropertyList: React.FC<PropertyListProps> = ({
   properties,
   filters,
   onOpenDetails,
-  onLoadSampleData,
+  onOpenAdmin,
 }) => {
   const [sortBy, setSortBy] = useState<'recente' | 'preco_menor' | 'preco_maior' | 'area'>('recente');
 
@@ -150,13 +149,13 @@ export const PropertyList: React.FC<PropertyListProps> = ({
               Consultar Disponibilidade no WhatsApp
             </a>
 
-            {onLoadSampleData && (
+            {onOpenAdmin && (
               <button
-                onClick={onLoadSampleData}
+                onClick={onOpenAdmin}
                 className="px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs sm:text-sm shadow transition-all flex items-center"
               >
-                <Sparkles className="w-4 h-4 mr-1.5" />
-                Carregar 3 Exemplos Reais (Demonstração)
+                <PlusCircle className="w-4 h-4 mr-1.5" />
+                Painel do Administrador
               </button>
             )}
           </div>

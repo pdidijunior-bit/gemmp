@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import type { PropertyItem, FilterState, PropertyCategory } from './types';
-import { subscribeToProperties, savePropertyToFirestore } from './lib/firebase';
-import { SAMPLE_ANGOLA_PROPERTIES } from './lib/sampleData';
+import { subscribeToProperties } from './lib/firebase';
 import { Navbar } from './components/Navbar';
 import { HeroBanner } from './components/HeroBanner';
 import { SmartSearch } from './components/SmartSearch';
@@ -67,13 +66,6 @@ export default function App() {
     setIsChatOpen(true);
   };
 
-  // Seed sample data if user wants to see demonstration
-  const handleLoadSampleData = async () => {
-    for (const p of SAMPLE_ANGOLA_PROPERTIES) {
-      await savePropertyToFirestore(p);
-    }
-  };
-
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col font-sans text-slate-900 selection:bg-amber-400 selection:text-slate-950">
       
@@ -114,13 +106,12 @@ export default function App() {
           totalResults={properties.length}
         />
 
-        {/* 4. Real-time Listings Feed with Empty State & Demonstrations */}
+        {/* 4. Real-time Listings Feed with Empty State */}
         <PropertyList
           properties={properties}
           filters={filters}
           onOpenDetails={(property) => setSelectedPropertyDetails(property)}
           onOpenAdmin={() => setIsAdminOpen(true)}
-          onLoadSampleData={handleLoadSampleData}
         />
 
         {/* 5. Civil Engineering & Construction Section */}
