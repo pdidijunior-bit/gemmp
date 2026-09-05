@@ -6,13 +6,16 @@ import {
   setDoc, 
   deleteDoc, 
   onSnapshot, 
-  query, 
-  orderBy, 
   addDoc, 
   updateDoc,
   getDoc
 } from 'firebase/firestore';
-import { getAuth, signInWithEmailAndPassword, signOut as fbSignOut } from 'firebase/auth';
+import { 
+  getAuth, 
+  signInWithEmailAndPassword, 
+  signOut as fbSignOut, 
+  signInAnonymously 
+} from 'firebase/auth';
 import type { PropertyItem, ChatMessage, Conversation, PublicityCard } from '../types';
 import { DEFAULT_PUBLICITY_CARDS } from './constants';
 import { SAMPLE_ANGOLA_PROPERTIES } from './sampleData';
@@ -32,6 +35,11 @@ export const firebaseConfig = {
 export const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 export const db = getFirestore(app);
 export const auth = getAuth(app);
+
+// Attempt silent anonymous authentication if enabled
+if (typeof window !== 'undefined') {
+  signInAnonymously(auth).catch(() => {});
+}
 
 const STORAGE_KEY_PROPERTIES = 'gemmp_properties_cache_v1';
 const STORAGE_KEY_CONVERSATIONS = 'gemmp_conversations_cache_v1';
@@ -116,10 +124,9 @@ export function subscribeToProperties(
 
   try {
     const propsCol = collection(db, 'properties');
-    const q = query(propsCol, orderBy('createdAt', 'desc'));
 
     const unsubscribe = onSnapshot(
-      q,
+      propsCol,
       (snapshot) => {
         const items: PropertyItem[] = [];
         snapshot.forEach((docSnap) => {
@@ -129,6 +136,9 @@ export function subscribeToProperties(
             id: docSnap.id,
           });
         });
+
+        // Client-side sort by createdAt descending (no composite index required)
+        items.sort((a, b) => (Number(b.createdAt) || 0) - (Number(a.createdAt) || 0));
 
         if (items.length === 0) {
           // If Firestore collection is empty on first boot, auto-populate with initial listings
@@ -195,10 +205,11 @@ export async function savePropertyToFirestore(property: PropertyItem): Promise<s
     const docRef = doc(db, 'properties', id);
     const sanitized = sanitizeFirestoreData(itemToSave);
     await setDoc(docRef, sanitized, { merge: true });
+    console.log('✅ SUCESSO: Imóvel sincronizado no Firestore em tempo real:', id);
     return id;
-  } catch (err) {
-    console.warn('Saved to local storage, Firestore pending sync:', err);
-    return id;
+  } catch (err: any) {
+    console.error('❌ ERRO NO FIRESTORE (Verifique as Regras no Console do Firebase):', err?.message);
+    throw new Error(err?.message || 'Erro ao sincronizar com Firestore');
   }
 }
 
@@ -251,15 +262,16 @@ export function subscribeToConversations(
 
   try {
     const col = collection(db, 'conversations');
-    const q = query(col, orderBy('lastUpdated', 'desc'));
 
     const unsubscribeFirestore = onSnapshot(
-      q,
+      col,
       (snapshot) => {
         const list: Conversation[] = [];
         snapshot.forEach((d) => {
           list.push({ ...d.data(), id: d.id } as Conversation);
         });
+        // Sort by lastUpdated descending in-memory (no index required)
+        list.sort((a, b) => (Number(b.lastUpdated) || 0) - (Number(a.lastUpdated) || 0));
         localStorage.setItem(STORAGE_KEY_CONVERSATIONS, JSON.stringify(list));
         callback(list);
       },
@@ -320,15 +332,16 @@ export function subscribeToMessages(
 
   try {
     const col = collection(db, 'conversations', conversationId, 'messages');
-    const q = query(col, orderBy('timestamp', 'asc'));
 
     const unsubscribeFirestore = onSnapshot(
-      q,
+      col,
       (snapshot) => {
         const msgs: ChatMessage[] = [];
         snapshot.forEach((d) => {
           msgs.push({ ...d.data(), id: d.id } as ChatMessage);
         });
+        // Sort chronologically ascending in-memory
+        msgs.sort((a, b) => (Number(a.timestamp) || 0) - (Number(b.timestamp) || 0));
         localStorage.setItem(`${STORAGE_KEY_MESSAGES}_${conversationId}`, JSON.stringify(msgs));
         callback(msgs);
       },
@@ -387,7 +400,7 @@ export async function sendChatMessage(
     const idx = convList.findIndex((c) => c.id === conversationId);
     const updatedConv: Conversation = {
       id: conversationId,
-      clientName: message.clientName,
+      clientName: message.clientName || 'Cliente Gemmp',
       clientPhone: message.clientPhone || '',
       lastMessage: message.text,
       lastUpdated: msgObj.timestamp,
@@ -417,7 +430,7 @@ export async function sendChatMessage(
       convRef,
       sanitizeFirestoreData({
         id: conversationId,
-        clientName: message.clientName,
+        clientName: message.clientName || 'Cliente Gemmp',
         clientPhone: message.clientPhone || '',
         lastMessage: message.text,
         lastUpdated: msgObj.timestamp,
@@ -429,8 +442,10 @@ export async function sendChatMessage(
 
     const messagesCol = collection(db, 'conversations', conversationId, 'messages');
     await addDoc(messagesCol, sanitizeFirestoreData(msgObj));
-  } catch (err) {
-    console.warn('Message saved locally, Firestore pending sync:', err);
+    console.log('✅ SUCESSO: Mensagem sincronizada no Firestore:', conversationId);
+  } catch (err: any) {
+    console.error('❌ ERRO NO FIRESTORE CHAT (Verifique as Regras no Console do Firebase):', err?.message);
+    throw new Error(err?.message || 'Falha ao sincronizar mensagem');
   }
 }
 
@@ -632,4 +647,17 @@ export async function saveCustomLocality(localityName: string): Promise<string> 
   }
 
   return cleanLocality;
+}
+
+/**
+ * Diagnostic tool to check live Firestore connection and permissions
+ */
+export async function checkFirestoreConnectivity(): Promise<{ connected: boolean; error?: string }> {
+  try {
+    const testDoc = doc(db, 'system', 'connectivity_check');
+    await setDoc(testDoc, { ping: Date.now() }, { merge: true });
+    return { connected: true };
+  } catch (err: any) {
+    return { connected: false, error: err?.message || 'Permissão negada ou offline' };
+  }
 }

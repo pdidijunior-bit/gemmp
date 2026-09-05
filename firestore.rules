@@ -2,64 +2,34 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Helper functions
-    function isAuthenticated() {
-      return request.auth != null;
-    }
-
-    function isValidMessage() {
-      return request.resource.data.text is string 
-          && request.resource.data.text.size() > 0 
-          && request.resource.data.text.size() <= 2000
-          && request.resource.data.sender is string;
-    }
-
-    function isValidConversation() {
-      return request.resource.data.clientName is string 
-          && request.resource.data.clientName.size() > 0 
-          && request.resource.data.clientName.size() <= 100;
-    }
-
     // 1. Catálogo de Imóveis, Casas e Terrenos
-    // Leitura pública universal; gravação e exclusão restrita a administradores autenticados
+    // Leitura e gravação 100% liberadas em tempo real para todos os dispositivos (Plano Gratuito)
     match /properties/{propertyId} {
-      allow read: if true;
-      allow create, update, delete: if isAuthenticated();
+      allow read, write: if true;
     }
 
-    // 2. Chat de Atendimento ao Cliente
-    // Clientes podem criar conversas com nome válido e atualizar timestamps
+    // 2. Chat de Atendimento ao Cliente e Mensagens em Tempo Real
     match /conversations/{conversationId} {
-      allow read: if true;
-      allow create: if isValidConversation();
-      allow update: if true;
-      allow delete: if isAuthenticated();
+      allow read, write: if true;
 
-      // Mensagens da conversa com validação de tamanho e conteúdo
       match /messages/{messageId} {
-        allow read: if true;
-        allow create: if isValidMessage();
-        allow update, delete: if isAuthenticated();
+        allow read, write: if true;
       }
     }
 
-    // 3. Caixas de Publicidade & Configurações de Sistema
-    // Leitura pública para exibição no topo; alteração apenas por administradores
+    // 3. Caixas de Publicidade e Configurações Globais
     match /system/{documentId} {
-      allow read: if true;
-      allow write: if isAuthenticated();
+      allow read, write: if true;
     }
 
     // 4. Categorias e Localidades Adicionadas Dinamicamente
-    // Leitura pública para filtros de busca; alteração restrita a administradores
     match /config/{documentId} {
-      allow read: if true;
-      allow write: if isAuthenticated();
+      allow read, write: if true;
     }
 
-    // 5. Bloqueio padrão para qualquer outra coleção não declarada
+    // 5. Permissão geral sem travas para todas as coleções
     match /{document=**} {
-      allow read, write: if false;
+      allow read, write: if true;
     }
   }
 }

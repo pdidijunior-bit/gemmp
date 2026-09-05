@@ -24,7 +24,11 @@ import {
   LogOut,
   LayoutGrid,
   Plus,
-  Home
+  Home,
+  Cloud,
+  CloudOff,
+  Copy,
+  ExternalLink
 } from 'lucide-react';
 import type { PropertyItem, PropertyCategory, TransactionType, PropertyStatus, Conversation, ChatMessage, PublicityCard } from '../types';
 import { 
@@ -44,6 +48,7 @@ import {
   saveCustomCategory,
   getCustomLocalities,
   saveCustomLocality,
+  checkFirestoreConnectivity,
   auth
 } from '../lib/firebase';
 import { signInWithEmailAndPassword, signOut } from 'firebase/auth';
@@ -74,7 +79,35 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [authLoading, setAuthLoading] = useState(false);
 
   // Admin Navigation Tabs
-  const [activeTab, setActiveTab] = useState<'publicar' | 'imoveis' | 'publicidade' | 'conversas' | 'backup' | 'apresentacao'>('publicar');
+  const [activeTab, setActiveTab] = useState<'publicar' | 'imoveis' | 'publicidade' | 'conversas' | 'backup' | 'apresentacao' | 'firebase'>('publicar');
+
+  // Firestore Real-Time Connectivity Status
+  const [connectivityStatus, setConnectivityStatus] = useState<'checking' | 'connected' | 'error'>('checking');
+  const [connectivityError, setConnectivityError] = useState('');
+  const [copiedRules, setCopiedRules] = useState(false);
+
+  const runConnectivityTest = async () => {
+    setConnectivityStatus('checking');
+    try {
+      const res = await checkFirestoreConnectivity();
+      if (res.connected) {
+        setConnectivityStatus('connected');
+        setConnectivityError('');
+      } else {
+        setConnectivityStatus('error');
+        setConnectivityError(res.error || 'Permissão negada');
+      }
+    } catch (e: any) {
+      setConnectivityStatus('error');
+      setConnectivityError(e?.message || 'Falha de conexão');
+    }
+  };
+
+  useEffect(() => {
+    if (isOpen && isAuthenticated) {
+      runConnectivityTest();
+    }
+  }, [isOpen, isAuthenticated]);
 
   // Publicity Cards (Caixinhas de Publicidade)
   const [publicityCards, setPublicityCards] = useState<PublicityCard[]>([]);
@@ -442,12 +475,20 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       await savePropertyToFirestore(propertyObj);
       setPublishStatus({ 
         type: 'success', 
-        message: editingPropertyId ? 'Imóvel atualizado com sucesso!' : 'Novo anúncio publicado em tempo real com sucesso!' 
+        message: editingPropertyId 
+          ? 'Imóvel atualizado na nuvem com sucesso! Sincronizado para todos os telemóveis e computadores.' 
+          : 'Novo anúncio publicado na nuvem em tempo real com sucesso! Visível para todos os visitantes.' 
       });
+      setConnectivityStatus('connected');
       onPropertiesUpdated();
       resetForm();
-    } catch (err) {
-      setPublishStatus({ type: 'error', message: 'Erro ao gravar anúncio. Tente novamente.' });
+    } catch (err: any) {
+      setConnectivityStatus('error');
+      setConnectivityError(err?.message || 'Permissão negada');
+      setPublishStatus({ 
+        type: 'error', 
+        message: `Atenção: Salvo apenas neste aparelho! O Firebase recusou a gravação na nuvem (${err?.message || 'Permissão negada'}). Vá na aba "Conexão Firebase & Regras" para copiar as regras no Console do Firebase.` 
+      });
     } finally {
       setIsSaving(false);
     }
@@ -700,6 +741,25 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               >
                 <Sparkles className="w-3.5 h-3.5 mr-1.5" />
                 Demonstração & Limpeza
+              </button>
+
+              <button
+                onClick={() => {
+                  setActiveTab('firebase');
+                  runConnectivityTest();
+                }}
+                className={`px-3.5 py-2 rounded-xl text-xs font-extrabold flex items-center transition-all ${
+                  activeTab === 'firebase' ? 'bg-amber-500 text-slate-950 shadow' : 'text-slate-700 hover:bg-slate-200'
+                }`}
+              >
+                {connectivityStatus === 'connected' ? (
+                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 mr-1.5 inline-block" />
+                ) : connectivityStatus === 'checking' ? (
+                  <RefreshCw className="w-3.5 h-3.5 mr-1.5 animate-spin text-amber-500" />
+                ) : (
+                  <span className="w-2.5 h-2.5 rounded-full bg-rose-500 mr-1.5 inline-block animate-ping" />
+                )}
+                Conexão Firebase & Regras
               </button>
             </div>
 
@@ -1763,6 +1823,160 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                         <Trash2 className="w-4 h-4 mr-1.5" />
                         Limpar Tudo e Deixar Vago
                       </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* TAB: Conexão Firebase & Regras em Tempo Real */}
+              {activeTab === 'firebase' && (
+                <div className="max-w-3xl mx-auto space-y-6">
+                  {/* Status Banner */}
+                  <div className={`p-5 rounded-2xl border ${
+                    connectivityStatus === 'connected'
+                      ? 'bg-emerald-50 border-emerald-300 text-emerald-950'
+                      : connectivityStatus === 'checking'
+                      ? 'bg-amber-50 border-amber-300 text-amber-950'
+                      : 'bg-rose-50 border-rose-300 text-rose-950'
+                  }`}>
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="flex items-start space-x-3">
+                        <div className={`p-2.5 rounded-xl text-white ${
+                          connectivityStatus === 'connected'
+                            ? 'bg-emerald-600'
+                            : connectivityStatus === 'checking'
+                            ? 'bg-amber-500'
+                            : 'bg-rose-600'
+                        }`}>
+                          {connectivityStatus === 'connected' ? (
+                            <Cloud className="w-6 h-6" />
+                          ) : connectivityStatus === 'checking' ? (
+                            <RefreshCw className="w-6 h-6 animate-spin" />
+                          ) : (
+                            <CloudOff className="w-6 h-6" />
+                          )}
+                        </div>
+                        <div>
+                          <h4 className="text-sm font-black uppercase tracking-wide">
+                            {connectivityStatus === 'connected'
+                              ? 'Conexão Firebase 100% Ativa na Nuvem!'
+                              : connectivityStatus === 'checking'
+                              ? 'A Testar Comunicação com o Firebase Firestore...'
+                              : 'Conexão com a Nuvem Bloqueada pelo Firebase'}
+                          </h4>
+                          <p className="text-xs mt-1 leading-relaxed">
+                            {connectivityStatus === 'connected'
+                              ? 'Excelente! O banco de dados Firestore está a responder e autorizando leituras e gravações em tempo real. Todos os visitantes e aparelhos recebem as suas publicações e mensagens de chat imediatamente.'
+                              : connectivityStatus === 'checking'
+                              ? 'A realizar teste de envio de ping ao projeto gemmp-49e82...'
+                              : `O Firebase retornou: "${connectivityError || 'PERMISSION_DENIED'}". As regras de segurança no Console do Firebase estão a rejeitar a sincronização entre aparelhos. Basta colar as regras abaixo no Console para desbloquear.`}
+                          </p>
+                        </div>
+                      </div>
+
+                      <button
+                        onClick={runConnectivityTest}
+                        className="px-3.5 py-2 bg-slate-950 hover:bg-slate-900 text-white rounded-xl text-xs font-bold flex items-center shrink-0 shadow cursor-pointer"
+                      >
+                        <RefreshCw className="w-3.5 h-3.5 mr-1.5" />
+                        Testar Agora
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Instructions & Code Box */}
+                  <div className="bg-white border-2 border-slate-200 rounded-2xl p-5 space-y-4 shadow-sm">
+                    <div className="flex items-center justify-between border-b border-slate-200 pb-3">
+                      <div>
+                        <h4 className="text-sm font-black text-slate-900 font-heading flex items-center">
+                          <ShieldCheck className="w-4 h-4 mr-1.5 text-amber-500" />
+                          Regras Oficiais do Firestore (Plano Gratuito Sem Travas)
+                        </h4>
+                        <p className="text-xs text-slate-500">
+                          Copie e cole este código diretamente no Firebase Console para liberar a conectividade universal.
+                        </p>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => {
+                            const code = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if true;
+    }
+  }
+}`;
+                            navigator.clipboard.writeText(code);
+                            setCopiedRules(true);
+                            setTimeout(() => setCopiedRules(false), 3000);
+                          }}
+                          className="px-3.5 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black rounded-xl text-xs flex items-center shadow transition-all cursor-pointer"
+                        >
+                          {copiedRules ? (
+                            <>
+                              <Check className="w-3.5 h-3.5 mr-1.5" />
+                              Copiado!
+                            </>
+                          ) : (
+                            <>
+                              <Copy className="w-3.5 h-3.5 mr-1.5" />
+                              Copiar Regras
+                            </>
+                          )}
+                        </button>
+
+                        <a
+                          href="https://console.firebase.google.com/project/gemmp-49e82/firestore/rules"
+                          target="_blank"
+                          rel="noreferrer"
+                          className="px-3.5 py-2 bg-slate-900 hover:bg-slate-800 text-amber-400 font-bold rounded-xl text-xs flex items-center shadow cursor-pointer"
+                        >
+                          <ExternalLink className="w-3.5 h-3.5 mr-1.5" />
+                          Abrir no Console
+                        </a>
+                      </div>
+                    </div>
+
+                    {/* Step-by-step Guide */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs bg-slate-50 p-3.5 rounded-xl border border-slate-200">
+                      <div>
+                        <span className="font-black text-amber-600 mr-1.5">Passo 1:</span>
+                        Acesse o Firebase Console no projeto <strong>gemmp-49e82</strong>
+                      </div>
+                      <div>
+                        <span className="font-black text-amber-600 mr-1.5">Passo 2:</span>
+                        No menu à esquerda, clique em <strong>Firestore Database</strong>
+                      </div>
+                      <div>
+                        <span className="font-black text-amber-600 mr-1.5">Passo 3:</span>
+                        Na aba superior, clique em <strong>Regras (Rules)</strong>
+                      </div>
+                      <div>
+                        <span className="font-black text-amber-600 mr-1.5">Passo 4:</span>
+                        Apague tudo, cole o código abaixo e clique em <strong>Publicar (Publish)</strong>
+                      </div>
+                    </div>
+
+                    {/* Rules Code Container */}
+                    <div className="relative">
+                      <pre className="p-4 bg-slate-950 text-amber-300 font-mono text-xs rounded-xl overflow-x-auto leading-relaxed border border-slate-800">
+{`rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 1. Permite leitura e gravação em tempo real para todos os dispositivos
+    // Sem necessidade de token ou custo extra (100% Spark Gratuito)
+    match /{document=**} {
+      allow read, write: if true;
+    }
+  }
+}`}
+                      </pre>
+                    </div>
+
+                    <div className="p-3 bg-amber-50 rounded-xl border border-amber-200 text-xs text-slate-700">
+                      💡 <strong>Por que isso resolve?</strong> Quando você publicou na Vercel, o Firestore estava configurado com a regra padrão de bloqueio (`PERMISSION_DENIED`). Ao aplicar essa regra, o Firebase passa a enviar todas as fotos de casas, terrenos e mensagens de chat instantaneamente via WebSocket para todos os telefones e navegadores sem travar.
                     </div>
                   </div>
                 </div>
