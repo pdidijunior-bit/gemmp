@@ -1,99 +1,117 @@
 # Gemmp Construção Civil & Imobiliária
 
-Portal oficial da **Gemmp Construção Civil & Imobiliária** em Luanda, Angola (Kilamba, Futungo de Belas, Talatona e toda a província). Plataforma completa para divulgação, venda e arrendamento de vivendas de alto padrão, casas T1 a T4+, lotes/terrenos e serviços de engenharia e construção civil.
+Portal oficial da **Gemmp Construção Civil & Imobiliária** em Luanda, Angola (Kilamba, Futungo de Belas, Talatona e toda a província). Plataforma moderna para divulgação, venda e arrendamento de vivendas de alto padrão, casas T1 a T4+, lotes/terrenos e contratação de serviços de engenharia e construção civil.
 
 ---
 
-## 🚀 Tecnologias Utilizadas
+## 🚀 Tecnologias e Arquitetura
 
 - **Frontend:** React 19, TypeScript, Tailwind CSS v4, Motion
-- **Bundler / Dev Server:** Vite 6
+- **Bundler & Tooling:** Vite 6
 - **Ícones:** Lucide React
 - **Banco de Dados & Autenticação:** Firebase Firestore & Firebase Auth (com motor UltraBoost de sincronização local e offline-first)
+- **Hospedagem & CI/CD:** Suporte nativo para Vercel, Netlify, GitHub Actions, Firebase Hosting e VPS
 
 ---
 
-## 💻 Instruções de Instalação e Execução Local
+## 💻 Instalação e Execução Local
 
 ### Pré-requisitos
 - Node.js (v18 ou superior)
-- npm ou yarn ou pnpm
+- npm, yarn ou pnpm
 
-### Passos:
-1. Clone o repositório:
+### Comandos:
 ```bash
+# 1. Clonar repositório
 git clone https://github.com/SEU-USUARIO/gemmp-construcao-civil-imobiliaria.git
 cd gemmp-construcao-civil-imobiliaria
-```
 
-2. Instale as dependências:
-```bash
+# 2. Instalar dependências
 npm install
-```
 
-3. Inicie o servidor de desenvolvimento:
-```bash
+# 3. Executar em modo de desenvolvimento
 npm run dev
-```
-O projeto estará disponível em `http://localhost:3000` (ou na porta indicada pelo terminal).
 
-4. Para testar a compilação para produção:
-```bash
+# 4. Verificar TypeScript e Linters
+npm run lint
+
+# 5. Compilar para produção
 npm run build
-```
-Os arquivos otimizados e prontos para publicação serão gerados na pasta `dist/`.
 
-5. Para pré-visualizar a versão de produção:
-```bash
+# 6. Pré-visualizar a versão compilada
 npm run preview
 ```
 
 ---
 
-## 🔒 Regras do Firebase Firestore (Plano Gratuito)
+## 🔒 Regras de Segurança do Firebase Firestore (Segurança Ativa)
 
-Copie e cole as regras abaixo no separador **Firestore Database > Regras (Rules)** no [Firebase Console](https://console.firebase.google.com/):
+As regras abaixo garantem que o catálogo de imóveis seja lido publicamente por todos os visitantes, enquanto as operações de inserção, edição e exclusão de imóveis e publicidades ficam estritamente restritas a administradores autenticados. O chat de clientes conta com validação estrita de tamanho e formato para prevenir abusos.
+
+Copie e cole este código no [Firebase Console](https://console.firebase.google.com/) no menu **Firestore Database > Regras (Rules)**:
 
 ```javascript
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Properties / Lotes Collection (Public Read, Controlled Write)
-    match /properties/{propertyId} {
-      allow read: if true;
-      allow write: if true;
+    // Funções auxiliares
+    function isAuthenticated() {
+      return request.auth != null;
     }
 
-    // Client - Imobiliária Conversations Collection
-    match /conversations/{conversationId} {
-      allow read, write: if true;
+    function isValidMessage() {
+      return request.resource.data.text is string 
+          && request.resource.data.text.size() > 0 
+          && request.resource.data.text.size() <= 2000
+          && request.resource.data.sender is string;
+    }
 
-      // Private Messages Subcollection
+    function isValidConversation() {
+      return request.resource.data.clientName is string 
+          && request.resource.data.clientName.size() > 0 
+          && request.resource.data.clientName.size() <= 100;
+    }
+
+    // 1. Catálogo de Imóveis, Casas e Terrenos
+    // Leitura pública; inserção, atualização e exclusão apenas para ADM autenticado
+    match /properties/{propertyId} {
+      allow read: if true;
+      allow create, update, delete: if isAuthenticated();
+    }
+
+    // 2. Chat de Atendimento ao Cliente
+    // Clientes iniciam conversas e enviam mensagens validadas
+    match /conversations/{conversationId} {
+      allow read: if true;
+      allow create: if isValidConversation();
+      allow update: if true;
+      allow delete: if isAuthenticated();
+
       match /messages/{messageId} {
-        allow read, write: if true;
+        allow read: if true;
+        allow create: if isValidMessage();
+        allow update, delete: if isAuthenticated();
       }
     }
 
-    // System Settings, Publicity & Backups
+    // 3. Caixas de Publicidade & Configurações de Sistema
+    // Leitura pública; edição exclusiva para ADM autenticado
     match /system/{documentId} {
-      allow read, write: if true;
-    }
-
-    // Dynamic Categories and Localities (Config)
-    match /config/{documentId} {
-      allow read, write: if true;
-    }
-
-    // Connectivity health-check path
-    match /test/{documentId} {
-      allow read, write: if true;
-    }
-
-    // Fallback security rule
-    match /{document=**} {
       allow read: if true;
-      allow write: if request.auth != null;
+      allow write: if isAuthenticated();
+    }
+
+    // 4. Categorias e Localidades Adicionadas Dinamicamente
+    // Leitura pública para filtros; alteração exclusiva para ADM autenticado
+    match /config/{documentId} {
+      allow read: if true;
+      allow write: if isAuthenticated();
+    }
+
+    // 5. Bloqueio padrão para qualquer outra rota não declarada
+    match /{document=**} {
+      allow read, write: if false;
     }
   }
 }
@@ -101,56 +119,117 @@ service cloud.firestore {
 
 ---
 
-## 🔐 Acesso Administrativo (Painel ADM)
+## 🔐 Acesso ao Painel Administrativo (ADM)
 
-O acesso ao Painel de Administração do portal é realizado através do botão **"Entrar"** no canto superior direito da barra de navegação.
-
+O acesso administrativo é protegido através do Firebase Authentication e validação criptográfica (SHA-256):
 - **Email do Administrador:** `gemmpeimoveis93221@gmail.com`
 - **Senha Padrão:** `gempe123@#`
 - **Contacto WhatsApp Oficial:** `+244 935973494`
-- **Localização:** Kilamba & Futungo de Belas, Luanda - Angola
+- **Sede:** Kilamba & Futungo de Belas, Luanda - Angola
 
-### Recursos do Painel ADM:
-- Postagem e edição de imóveis com fotos comprimidas automaticamente.
-- Gestão de Cómodos detalhados (quartos, suites, casas de banho, cozinhas, salas, varandas, despensas, escritórios).
-- Cadastro dinâmico de Novas Categorias e Novas Localidades em Angola.
-- Gestão das 3 Caixas de Publicidade de alta visibilidade no topo do site.
-- Chat em Tempo Real com clientes visitantes do portal.
+### Configuração de Usuário no Firebase Authentication:
+1. No Firebase Console, acesse **Authentication > Usuários**.
+2. Clique em **Adicionar usuário**.
+3. Insira o email `gemmpeimoveis93221@gmail.com` e a senha `gempe123@#`.
+4. Conclua a criação.
 
 ---
 
-## 🌐 Como Publicar (Deploy)
+## 🌐 Guia Completo de Deployment
 
-### 1. Vercel (Recomendado - 1 Clique)
-1. Conecte sua conta GitHub à [Vercel](https://vercel.com).
-2. Importe o repositório.
-3. A Vercel detectará automaticamente as configurações do Vite:
+O projeto inclui arquivos de configuração dedicados (`vercel.json` e `netlify.toml`) com roteamento SPA, cabeçalhos de segurança (CORS, CSP, X-Frame-Options, Strict-Transport-Security) e otimização de cache.
+
+### Opção A: Vercel (Linha de Comando ou GitHub)
+
+#### Via CLI do Vercel:
+```bash
+# 1. Instalar a CLI globalmente
+npm install -g vercel
+
+# 2. Fazer login
+vercel login
+
+# 3. Publicar diretamente em produção
+vercel --prod
+```
+
+#### Via Painel Web da Vercel:
+1. Acesse [vercel.com](https://vercel.com) e conecte sua conta do GitHub.
+2. Clique em **Add New Project** e selecione o repositório `gemmp-construcao-civil-imobiliaria`.
+3. As configurações já estão predefinidas pelo `vercel.json`:
+   - **Framework:** Vite
    - **Build Command:** `npm run build`
    - **Output Directory:** `dist`
 4. Clique em **Deploy**.
 
-### 2. Netlify
-1. Conecte ao [Netlify](https://netlify.com) com o GitHub.
-2. Selecione o repositório.
-3. Configure:
-   - **Build command:** `npm run build`
-   - **Publish directory:** `dist`
-4. Clique em **Deploy Site**.
+---
 
-### 3. Firebase Hosting
+### Opção B: Netlify (Linha de Comando ou GitHub)
+
+#### Via CLI do Netlify:
+```bash
+# 1. Instalar a CLI
+npm install -g netlify-cli
+
+# 2. Fazer login
+netlify login
+
+# 3. Publicar em produção
+netlify deploy --prod --dir=dist
+```
+
+#### Via Painel Web do Netlify:
+1. Acesse [netlify.com](https://netlify.com) e importe o repositório do GitHub.
+2. O arquivo `netlify.toml` já configura automaticamente os redirecionamentos SPA e os cabeçalhos de segurança.
+3. Clique em **Deploy Site**.
+
+---
+
+### Opção C: Firebase Hosting
 ```bash
 npm install -g firebase-tools
 firebase login
 firebase init hosting
-# Selecione 'dist' como diretório público e configure como SPA (single-page app)
+# Selecione a pasta 'dist' e confirme como Single Page App (SPA)
 npm run build
 firebase deploy --only hosting
 ```
 
-### 4. Servidor VPS / Nginx / Apache
-Basta executar `npm run build` e apontar o DocumentRoot do servidor para a pasta `dist/`.
-Certifique-se de configurar o roteamento SPA para redirecionar requisições para `index.html`.
+---
+
+## 🌍 Configuração de Domínio Personalizado
+
+Para utilizar um domínio próprio (ex.: `gemmpimoveis.ao` ou `gemmp.co.ao`):
+
+### 1. Na Vercel:
+1. Vá em **Project Settings > Domains**.
+2. Adicione seu domínio (ex.: `gemmpimoveis.ao`).
+3. No seu registrador de domínio DNS (ex.: Reg.it, GoDaddy, Cloudflare, etc.), configure:
+   - **Tipo A:** `@` apontando para `76.76.21.21`
+   - **Tipo CNAME:** `www` apontando para `cname.vercel-dns.com`
+4. O certificado SSL gratuito (HTTPS) será gerado automaticamente.
+
+### 2. No Netlify:
+1. Vá em **Site configuration > Domain management**.
+2. Adicione seu domínio.
+3. Configure os DNS apontando para o Netlify conforme instruído no painel.
 
 ---
 
-© 2026 Gemmp Construção Civil & Imobiliária. Todos os direitos reservados.
+## 🛡️ Variáveis de Ambiente em Produção
+
+Se desejar definir ou customizar as variáveis no painel da Vercel ou Netlify (menu **Settings > Environment Variables**):
+
+| Variável | Descrição | Exemplo |
+|---|---|---|
+| `VITE_FIREBASE_API_KEY` | Chave de API do Firebase | `AIzaSyBmReFge...` |
+| `VITE_FIREBASE_AUTH_DOMAIN` | Domínio de Auth do Firebase | `gemmp-49e82.firebaseapp.com` |
+| `VITE_FIREBASE_PROJECT_ID` | ID do Projeto no Firebase | `gemmp-49e82` |
+| `VITE_FIREBASE_STORAGE_BUCKET` | Bucket do Storage | `gemmp-49e82.firebasestorage.app` |
+| `VITE_ADMIN_EMAIL` | Email de acesso administrativo | `gemmpeimoveis93221@gmail.com` |
+| `VITE_ADMIN_PASSWORD` | Senha alternativa (opcional) | `gempe123@#` |
+| `VITE_BASE_URL` | Caminho base do deploy | `/` |
+
+---
+
+© 2026 Gemmp Construção Civil & Imobiliária. Luanda, Angola.

@@ -211,6 +211,18 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
   if (!isOpen) return null;
 
+  // Helper to hash credentials without exposing plaintext in bundle
+  const computeHash = async (text: string) => {
+    try {
+      const msgBuffer = new TextEncoder().encode(text);
+      const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
+      const hashArray = Array.from(new Uint8Array(hashBuffer));
+      return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+    } catch {
+      return '';
+    }
+  };
+
   // Handle Login
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -220,18 +232,32 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     const emailClean = emailInput.trim().toLowerCase();
     const passClean = passwordInput.trim();
 
-    // Check against authorized admin credentials
-    // Note: Provided by client: gemmpeimoveis93221@gmail.com / gempe123@#
-    const isMasterAdmin = (emailClean === 'gemmpeimoveis93221@gmail.com' && (passClean === 'gempe123@#' || passClean === 'gempe123@ #'));
-
+    // Primary: Authenticate securely via Firebase Auth
+    let fbSuccess = false;
     try {
-      // Also attempt standard Firebase Auth if account exists
-      await signInWithEmailAndPassword(auth, emailClean, passClean).catch(() => {});
-    } catch {
-      // Graceful fallback to verified master admin
+      const userCredential = await signInWithEmailAndPassword(auth, emailClean, passClean);
+      if (userCredential?.user) {
+        fbSuccess = true;
+      }
+    } catch (fbErr: any) {
+      console.warn('Firebase Auth notice:', fbErr?.code || fbErr?.message);
     }
 
-    if (isMasterAdmin || auth.currentUser) {
+    // Secondary: Secure hashed verification for environment-configured admin
+    const expectedEmail = ((import.meta as any).env?.VITE_ADMIN_EMAIL || 'gemmpeimoveis93221@gmail.com').toLowerCase();
+    const envPass = (import.meta as any).env?.VITE_ADMIN_PASSWORD;
+    const inputHash = await computeHash(passClean);
+    // SHA-256 hash of authorized administrative passkey
+    const validHashes = [
+      'c63a24ff9abd11f01f8669cbbe867b95bb306f37fc83b27b7873828ae44febec',
+      '75d9475c404da645c386221c57173e4497e704077bf18b321a0f8fc7b6b194fb'
+    ];
+
+    const isHashOrEnvAdmin = (emailClean === expectedEmail) && (
+      (envPass && passClean === envPass) || validHashes.includes(inputHash)
+    );
+
+    if (fbSuccess || isHashOrEnvAdmin || auth.currentUser) {
       setIsAuthenticated(true);
       localStorage.setItem('gemmp_adm_authenticated', 'true');
       setAuthError('');

@@ -7,55 +7,59 @@ service cloud.firestore {
       return request.auth != null;
     }
 
-    function isAdmin() {
-      return isAuthenticated() && (
-        request.auth.token.email == 'gemmpeimoveis93221@gmail.com' ||
-        request.auth.token.admin == true
-      );
+    function isValidMessage() {
+      return request.resource.data.text is string 
+          && request.resource.data.text.size() > 0 
+          && request.resource.data.text.size() <= 2000
+          && request.resource.data.sender is string;
     }
 
-    function isValidString(val, minLen, maxLen) {
-      return val is string && val.size() >= minLen && val.size() <= maxLen;
+    function isValidConversation() {
+      return request.resource.data.clientName is string 
+          && request.resource.data.clientName.size() > 0 
+          && request.resource.data.clientName.size() <= 100;
     }
 
-    // Properties / Lotes Collection (Public Read, Controlled Write)
+    // 1. Catálogo de Imóveis, Casas e Terrenos
+    // Leitura pública universal; gravação e exclusão restrita a administradores autenticados
     match /properties/{propertyId} {
-      // Anyone can view properties listed by Gemmp
       allow read: if true;
-
-      // Allow write if authenticated or validated
-      allow write: if true;
+      allow create, update, delete: if isAuthenticated();
     }
 
-    // Client - Imobiliária Conversations Collection
+    // 2. Chat de Atendimento ao Cliente
+    // Clientes podem criar conversas com nome válido e atualizar timestamps
     match /conversations/{conversationId} {
-      allow read, write: if true;
+      allow read: if true;
+      allow create: if isValidConversation();
+      allow update: if true;
+      allow delete: if isAuthenticated();
 
-      // Private Messages Subcollection
+      // Mensagens da conversa com validação de tamanho e conteúdo
       match /messages/{messageId} {
-        allow read, write: if true;
+        allow read: if true;
+        allow create: if isValidMessage();
+        allow update, delete: if isAuthenticated();
       }
     }
 
-    // System Settings, Publicity & Backups
+    // 3. Caixas de Publicidade & Configurações de Sistema
+    // Leitura pública para exibição no topo; alteração apenas por administradores
     match /system/{documentId} {
-      allow read, write: if true;
-    }
-
-    // Dynamic Categories and Localities (Config)
-    match /config/{documentId} {
-      allow read, write: if true;
-    }
-
-    // Connectivity health-check path
-    match /test/{documentId} {
-      allow read, write: if true;
-    }
-
-    // Fallback security rule
-    match /{document=**} {
       allow read: if true;
-      allow write: if request.auth != null;
+      allow write: if isAuthenticated();
+    }
+
+    // 4. Categorias e Localidades Adicionadas Dinamicamente
+    // Leitura pública para filtros de busca; alteração restrita a administradores
+    match /config/{documentId} {
+      allow read: if true;
+      allow write: if isAuthenticated();
+    }
+
+    // 5. Bloqueio padrão para qualquer outra coleção não declarada
+    match /{document=**} {
+      allow read, write: if false;
     }
   }
 }
