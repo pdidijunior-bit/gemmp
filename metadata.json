@@ -1,0 +1,6 @@
+{
+  "name": "Gemmp Construção Civil & Imobiliária",
+  "description": "Portal oficial da Gemmp Construção Civil & Imobiliária em Angola (Kilamba e Futungo de Belas). Venda e arrendamento de casas T1 a T4+, vivendas, terrenos e serviços de engenharia e construção civil.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

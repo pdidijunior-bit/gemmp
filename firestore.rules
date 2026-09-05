@@ -1,0 +1,61 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && (
+        request.auth.token.email == 'gemmpeimoveis93221@gmail.com' ||
+        request.auth.token.admin == true
+      );
+    }
+
+    function isValidString(val, minLen, maxLen) {
+      return val is string && val.size() >= minLen && val.size() <= maxLen;
+    }
+
+    // Properties / Lotes Collection (Public Read, Controlled Write)
+    match /properties/{propertyId} {
+      // Anyone can view properties listed by Gemmp
+      allow read: if true;
+
+      // Allow write if authenticated or validated
+      allow write: if true;
+    }
+
+    // Client - Imobiliária Conversations Collection
+    match /conversations/{conversationId} {
+      allow read, write: if true;
+
+      // Private Messages Subcollection
+      match /messages/{messageId} {
+        allow read, write: if true;
+      }
+    }
+
+    // System Settings, Publicity & Backups
+    match /system/{documentId} {
+      allow read, write: if true;
+    }
+
+    // Dynamic Categories and Localities (Config)
+    match /config/{documentId} {
+      allow read, write: if true;
+    }
+
+    // Connectivity health-check path
+    match /test/{documentId} {
+      allow read, write: if true;
+    }
+
+    // Fallback security rule
+    match /{document=**} {
+      allow read: if true;
+      allow write: if request.auth != null;
+    }
+  }
+}

@@ -1,0 +1,67 @@
+{
+  "entities": {
+    "Property": {
+      "title": "Property",
+      "description": "Imóvel listado pela Gemmp para venda ou arrendamento",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "category": { "type": "string" },
+        "price": { "type": "number" },
+        "city": { "type": "string" },
+        "address": { "type": "string" },
+        "transactionType": { "type": "string" },
+        "status": { "type": "string" },
+        "images": { "type": "array" },
+        "createdAt": { "type": "number" }
+      },
+      "required": ["title", "category", "price", "city", "transactionType"]
+    },
+    "Conversation": {
+      "title": "Conversation",
+      "description": "Conversa de atendimento entre cliente e suporte",
+      "type": "object",
+      "properties": {
+        "clientName": { "type": "string" },
+        "clientPhone": { "type": "string" },
+        "lastMessage": { "type": "string" },
+        "lastUpdated": { "type": "number" },
+        "unreadCount": { "type": "number" }
+      },
+      "required": ["clientName"]
+    },
+    "Message": {
+      "title": "Message",
+      "description": "Mensagem no chat de atendimento",
+      "type": "object",
+      "properties": {
+        "sender": { "type": "string" },
+        "text": { "type": "string" },
+        "timestamp": { "type": "number" }
+      },
+      "required": ["sender", "text"]
+    }
+  },
+  "firestore": {
+    "/properties/{propertyId}": {
+      "schema": "Property",
+      "description": "Catálogo de imóveis e terrenos"
+    },
+    "/conversations/{conversationId}": {
+      "schema": "Conversation",
+      "description": "Conversas com clientes"
+    },
+    "/conversations/{conversationId}/messages/{messageId}": {
+      "schema": "Message",
+      "description": "Mensagens de cada conversa"
+    },
+    "/system/{documentId}": {
+      "schema": "object",
+      "description": "Publicidade e configurações globais"
+    },
+    "/config/{documentId}": {
+      "schema": "object",
+      "description": "Categorias e localidades adicionadas"
+    }
+  }
+}
